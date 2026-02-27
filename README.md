@@ -117,6 +117,26 @@ SpeakEasy uses the Kokoro model. Available voices include:
 - **Female**: `af_heart` (Default), `af_nova`, `af_sky`, `bf_emma`, `bf_isabella`
 - **Male**: `am_adam`, `am_michael`, `bm_george`, `bm_lewis`
 
+### Reliability & Diagnostics
+
+- **Doctor**:
+  ```bash
+  speakeasy doctor
+  ```
+  Runs a local health check for dependencies, model files, mute state, server health, and Claude/OpenCode integration wiring.
+
+- **Logs**:
+  ```bash
+  speakeasy logs all -n 120
+  speakeasy logs whisper
+  speakeasy logs kokoro
+  speakeasy logs opencode
+  ```
+  Tails local runtime logs for fast troubleshooting.
+
+- **Compatibility Matrix**:
+  See [COMPATIBILITY.md](COMPATIBILITY.md) for known-good CLI integration versions.
+
 ---
 
 ## 🗺 Roadmap
@@ -126,9 +146,9 @@ SpeakEasy uses the Kokoro model. Available voices include:
 - [ ] **MCP Server**: Official Model Context Protocol implementation for native support in Claude Desktop, Cursor, and Zed.
 
 ### Reliability & Diagnostics
-- [ ] **Doctor Command**: Add `speakeasy doctor` to validate setup, model files, mute state, and hook/plugin installs.
-- [ ] **Version Compatibility Matrix**: Track known-good OpenCode/Claude versions and expected hook behavior.
-- [ ] **Logs Command**: Add `speakeasy logs` to tail STT/TTS/hook logs from one place.
+- [x] **Doctor Command**: `speakeasy doctor` validates setup, model files, mute state, and hook/plugin installs.
+- [x] **Version Compatibility Matrix**: Track known-good OpenCode/Claude versions and expected hook behavior in `COMPATIBILITY.md`.
+- [x] **Logs Command**: `speakeasy logs` tails STT/TTS/OpenCode plugin logs from one place.
 
 ### Infrastructure & Performance
 - [ ] **System Daemon**: `speakeasy service install` to manage servers via `launchd` (macOS) or `systemd` (Linux).
