@@ -1,29 +1,38 @@
 # SpeakEasy 🍸
 
-A universal, fully local voice interface for CLI agents and terminal workflows. STT via `whisper.cpp`, TTS via `kokoro-onnx`.
+**SpeakEasy** is a universal, 100% local voice interface for CLI agents and terminal workflows. It provides a seamless bridge between your voice and your local LLM agents (like Claude Code, Ollama, etc.) without ever sending audio or text data to the cloud.
 
-SpeakEasy provides "warm" background servers for near-instant transcription and speech generation, with a pipelined architecture that starts speaking as soon as the first sentence is ready.
+The architecture uses "warm" background servers to keep transcription (STT) and speech (TTS) models in memory, enabling near-instant response times.
 
-## Features
+---
 
-- **Local STT**: GPU-accelerated Whisper transcription via `whisper-server`.
-- **Local TTS**: Neural voice generation via `kokoro-onnx` HTTP server.
-- **Push-to-Talk**: Global hotkey (Raycast) for dictation into any app.
-- **Plugin System**: Built-in support for Claude Code hooks, easily extensible to other tools.
-- **Warm Servers**: Models stay in memory to avoid cold-start latency.
-- **Project Context**: Automatically assigns unique voices to different projects/folders.
-- **Zero Privacy Leak**: No API keys, no cloud calls, 100% offline.
+## 🚀 Features
 
-## Requirements
+- **Local STT**: GPU-accelerated Whisper transcription via `whisper.cpp` (Metal support).
+- **Local TTS**: High-quality neural voice generation via `kokoro-onnx` (ONNX runtime).
+- **Zero Latency Loop**: Warm HTTP servers eliminate model load times (zero "cold start").
+- **Pipelined Streaming**: Starts speaking the first sentence of a response in ~1.5s while the rest of the audio generates in the background.
+- **Push-to-Talk**: Global Raycast hotkey for dictation into any application.
+- **Smart Formatting**: Automatically strips code blocks and markdown from agent responses before speaking.
+- **Project-Aware Voices**: Assigns unique voices to different project directories (know which agent is talking).
+- **Private & Secure**: No API keys required. No telemetry. 100% offline.
 
-- macOS (Apple Silicon recommended)
-- [Homebrew](https://brew.sh)
-- [uv](https://docs.astral.sh/uv/)
-- [Raycast](https://raycast.com) (for hotkeys)
+---
 
-## Quick Start
+## 🛠 Requirements
 
-1. **Clone and Link**:
+- **macOS**: Optimized for Apple Silicon (M1/M2/M3/M4) for Metal acceleration.
+- **Homebrew**: For system dependencies.
+- **uv**: For Python dependency management.
+- **Hardware**: 
+  - Recommended: 16GB+ RAM (Whisper + Kokoro use ~1.5GB total).
+  - Audio: Built-in microphone or external USB interface.
+
+---
+
+## 📦 Installation
+
+1. **Clone & Link**:
    ```bash
    git clone https://github.com/YOUR_USERNAME/speakeasy.git
    cd speakeasy
@@ -32,6 +41,7 @@ SpeakEasy provides "warm" background servers for near-instant transcription and 
    ```
 
 2. **Run Setup**:
+   This installs `sox`, `ffmpeg`, `jq`, `whisper-cpp`, and `espeak-ng`, and downloads the models (~900MB).
    ```bash
    speakeasy setup
    ```
@@ -46,33 +56,71 @@ SpeakEasy provides "warm" background servers for near-instant transcription and 
    speakeasy hook-install
    ```
 
-## Integrations
+---
 
-### Claude Code
-Run `speakeasy hook-install` to automatically inject STT and TTS hooks into your `~/.claude/settings.json`.
+## ⌨️ Raycast Hotkeys
 
-### Other Tools
-To integrate with any other tool, pipe its output to `speakeasy speak`:
+To enable the push-to-talk experience:
+1. Open Raycast > Settings > Extensions > **Script Commands**.
+2. Click **Add Script Directory** and select the `speakeasy` folder.
+3. Assign Hotkeys:
+   - **SpeakEasy Dictate**: `Cmd + Opt + L` (Recommended)
+   - **SpeakEasy Mute Toggle**: `Cmd + Opt + M`
+
+---
+
+## ⚙️ Configuration
+
+Settings are stored in `~/.config/speakeasy/config`.
+
+### Global Settings
+Edit the config file to change the default behavior:
 ```bash
-my-agent-tool | speakeasy speak
+# ~/.config/speakeasy/config
+TTS_VOICE="af_heart"  # Default voice
+TTS_SPEED="1.1"       # Speech speed (1.0 is normal)
+TTS_LANG="en-us"      # Language code
 ```
-Or use the event-based hooks if the tool supports them.
 
-## Raycast Hotkeys
+### Per-Project Voices
+SpeakEasy can assign different voices to different project folders so you can distinguish between multiple agent sessions. Edit `~/.config/speakeasy/project-voices.conf`:
 
-1. Add this directory to Raycast Script Commands.
-2. Assign `Cmd+Opt+L` to **Voice Dictate**.
-3. Assign `Cmd+Opt+M` to **Voice Mute Toggle**.
+```bash
+# Format: folder_name=voice_id
+# Use the folder name, not the full path
+my-python-app=am_adam
+frontend-site=bf_emma
+research-paper=af_nova
 
-## Architecture
+# Fallback default
+DEFAULT=af_heart
+```
 
-- **Whisper (STT)**: 127.0.0.1:8787
-- **Kokoro (TTS)**: 127.0.0.1:8788
-- **Audio**: Uses `sox` (rec) and `afplay`.
-- **Streaming**: Splitting text into chunks allows for ~1.5s TTS latency on the first sentence.
+### Available Voices
+SpeakEasy uses the Kokoro model. Available voices include:
+- **Female**: `af_heart` (Default), `af_nova`, `af_sky`, `bf_emma`, `bf_isabella`
+- **Male**: `am_adam`, `am_michael`, `bm_george`, `bm_lewis`
 
-## Credits
+---
 
-- [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
-- [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx)
-- [sox](https://sox.sourceforge.net/)
+## 🗺 Roadmap
+
+- [ ] **Aider Integration**: Native hooks for the Aider CLI agent.
+- [ ] **Custom Model Support**: Interface to swap Whisper models (e.g., `distil-whisper`) for even faster STT.
+- [ ] **Auto-Mute**: Automatically pause TTS when the user starts speaking (VAD).
+- [ ] **Linux Support**: Porting the `afplay` and `osascript` dependencies to Linux alternatives.
+- [ ] **MCP Server**: Expose SpeakEasy as an MCP (Model Context Protocol) server.
+
+---
+
+## 📜 Credits
+
+- **STT**: [whisper.cpp](https://github.com/ggerganov/whisper.cpp) by Georgi Gerganov.
+- **TTS**: [kokoro-onnx](https://github.com/thewh1teagle/kokoro-onnx) based on the Kokoro model.
+- **Engine**: [sox](https://sox.sourceforge.net/) for robust audio capture.
+
+---
+
+## ⚖️ License
+
+MIT License. See [LICENSE](LICENSE) for details.

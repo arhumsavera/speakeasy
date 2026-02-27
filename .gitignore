@@ -1,9 +1,14 @@
-# Cache and Logs
-*.log
-*.pid
-cache/
+# Local data and models
 models/
 kokoro/
+cache/
+*.log
+*.pid
 
-# OS files
+# System files
 .DS_Store
+.env
+
+# Raycast logs
+/tmp/speakeasy-raycast.log
+/tmp/speakeasy-speech.lock
