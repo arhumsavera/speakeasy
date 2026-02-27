@@ -123,7 +123,6 @@ SpeakEasy uses the Kokoro model. Available voices include:
 
 ### Core Integrations
 - [x] **OpenCode Support**: Local plugin-based narration for assistant responses.
-- [ ] **Aider Support**: Native hooks and configuration for the Aider CLI agent.
 - [ ] **MCP Server**: Official Model Context Protocol implementation for native support in Claude Desktop, Cursor, and Zed.
 
 ### Reliability & Diagnostics
