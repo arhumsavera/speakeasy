@@ -2,18 +2,17 @@
 
 # Required parameters:
 # @raycast.schemaVersion 1
-# @raycast.title Voice Mute Toggle
+# @raycast.title SpeakEasy Mute Toggle
 # @raycast.mode silent
-# @raycast.packageName Voice
+# @raycast.packageName SpeakEasy
 
 # Optional parameters:
 # @raycast.icon 🔇
 # @raycast.description Toggle TTS on/off
 
-export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$PATH"
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin"
 
-VOICE_BIN="/Users/arhumsavera/scripts/voice/voice"
-TTS_FILE="$HOME/.config/voice/tts-enabled"
+TTS_FILE="$HOME/.config/speakeasy/tts-enabled"
 
 if [ -f "$TTS_FILE" ]; then
     rm -f "$TTS_FILE"

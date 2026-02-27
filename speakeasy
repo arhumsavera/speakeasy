@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 
-# Local Voice - A universal, fully local voice interface for CLI agents.
+# SpeakEasy - A universal, fully local voice interface for CLI agents.
 # STT (whisper.cpp) + TTS (kokoro) + Warm HTTP Servers.
+# 100% Private. No Cloud. Just speak.
 
 set -e
 
 # --- Configuration & Paths ---
-CONFIG_DIR="$HOME/.config/voice"
-DATA_DIR="$HOME/.local/share/voice"
+CONFIG_DIR="$HOME/.config/speakeasy"
+DATA_DIR="$HOME/.local/share/speakeasy"
 CACHE_DIR="$DATA_DIR/cache"
 MODEL_DIR="$DATA_DIR/models"
 KOKORO_DIR="$DATA_DIR/kokoro"
@@ -39,7 +40,7 @@ fi
 # --- Helpers ---
 
 log() {
-    echo -e "\033[0;32m[local-voice]\033[0m $1"
+    echo -e "\033[0;35m[speakeasy]\033[0m $1"
 }
 
 error() {
@@ -155,7 +156,7 @@ EOF
     # Enable TTS by default
     touch "$MUTE_FILE"
     
-    log "Setup complete! Run 'voice server start' to begin."
+    log "Setup complete! Run 'speakeasy server start' to begin."
 }
 
 cmd_server_start() {
@@ -189,7 +190,7 @@ cmd_server_start() {
         log "Kokoro server already running."
     fi
     
-    log "Servers warming up. Check 'voice status' in a moment."
+    log "Servers warming up. Check 'speakeasy status' in a moment."
 }
 
 cmd_server_stop() {
@@ -250,7 +251,7 @@ cmd_dictate() {
         # Kill any active TTS
         pkill -x afplay || true
         # Release speech lock
-        rm -rf /tmp/voice-speech.lock
+        rm -rf /tmp/speakeasy-speech.lock
         
         # Cleanup cache
         rm -f "$CACHE_DIR"/vc_*
@@ -290,11 +291,11 @@ cmd_speak() {
     while is_recording; do sleep 0.2; done
     
     # Acquire lock
-    until mkdir /tmp/voice-speech.lock 2>/dev/null; do
+    until mkdir /tmp/speakeasy-speech.lock 2>/dev/null; do
         if is_recording; then exit 0; fi
         sleep 0.1
     done
-    trap 'rm -rf /tmp/voice-speech.lock' EXIT
+    trap 'rm -rf /tmp/speakeasy-speech.lock' EXIT
     
     # Strip markdown and code
     local cleaned=$(echo "$text" | sed 's/```[^`]*```//g' | sed 's/`[^`]*`//g' | sed 's/^## *//g' | sed 's/\*\*//g' | sed 's/\*//g' | sed 's/^- //g' | sed 's/^[0-9]*\. //g')
@@ -335,7 +336,7 @@ cmd_speak() {
 }
 
 cmd_status() {
-    echo "--- Local Voice Status ---"
+    echo "--- SpeakEasy Status ---"
     if is_muted; then
         echo -e "TTS: \033[0;31mMUTED\033[0m"
     else
@@ -362,7 +363,7 @@ cmd_hook_install() {
     log "Installing Claude Code hooks..."
     
     mkdir -p "$CONFIG_DIR"
-    local voice_bin="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    local speakeasy_bin="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
     
     # Create stop hook
     cat > "$CONFIG_DIR/claude-hook-stop.sh" <<EOF
@@ -377,9 +378,9 @@ TRIMMED=\$(echo "\$MSG" | tr -d '[:space:]')
 MAX=2000
 if [ \${#MSG} -gt \$MAX ]; then MSG="\${MSG:0:\$MAX}..."; fi
 if [ -n "\$CWD" ]; then
-    "$voice_bin" speak --project "\$CWD" "\$MSG" &
+    "$speakeasy_bin" speak --project "\$CWD" "\$MSG" &
 else
-    "$voice_bin" speak "\$MSG" &
+    "$speakeasy_bin" speak "\$MSG" &
 fi
 exit 0
 EOF
@@ -393,9 +394,9 @@ MSG=\$(echo "\$INPUT" | jq -r '.message // empty' 2>/dev/null)
 [ -z "\$MSG" ] && exit 0
 CWD=\$(echo "\$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 if [ -n "\$CWD" ]; then
-    "$voice_bin" speak --project "\$CWD" "\$MSG" &
+    "$speakeasy_bin" speak --project "\$CWD" "\$MSG" &
 else
-    "$voice_bin" speak "\$MSG" &
+    "$speakeasy_bin" speak "\$MSG" &
 fi
 exit 0
 EOF
@@ -436,7 +437,7 @@ case "$1" in
             start) cmd_server_start ;;
             stop)  cmd_server_stop ;;
             status) cmd_status ;;
-            *) error "Usage: voice server {start|stop|status}" ;;
+            *) error "Usage: speakeasy server {start|stop|status}" ;;
         esac
         ;;
     dictate) cmd_dictate ;;
@@ -446,6 +447,6 @@ case "$1" in
     status) cmd_status ;;
     hook-install) cmd_hook_install ;;
     help|*)
-        echo "Usage: voice {setup|server|dictate|speak|mute|unmute|status|hook-install|help}"
+        echo "Usage: speakeasy {setup|server|dictate|speak|mute|unmute|status|hook-install|help}"
         ;;
 esac

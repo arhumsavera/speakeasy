@@ -1,8 +1,8 @@
-# Local Voice
+# SpeakEasy 🍸
 
 A universal, fully local voice interface for CLI agents and terminal workflows. STT via `whisper.cpp`, TTS via `kokoro-onnx`.
 
-This tool provides "warm" background servers for near-instant transcription and speech generation, with a pipelined architecture that starts speaking as soon as the first sentence is ready.
+SpeakEasy provides "warm" background servers for near-instant transcription and speech generation, with a pipelined architecture that starts speaking as soon as the first sentence is ready.
 
 ## Features
 
@@ -25,36 +25,36 @@ This tool provides "warm" background servers for near-instant transcription and 
 
 1. **Clone and Link**:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/local-voice.git
-   cd local-voice
-   chmod +x voice voice-dictate.sh voice-mute-toggle.sh
-   ln -sf "$(pwd)/voice" ~/.local/bin/voice
+   git clone https://github.com/YOUR_USERNAME/speakeasy.git
+   cd speakeasy
+   chmod +x speakeasy voice-dictate.sh voice-mute-toggle.sh
+   ln -sf "$(pwd)/speakeasy" ~/.local/bin/speakeasy
    ```
 
 2. **Run Setup**:
    ```bash
-   voice setup
+   speakeasy setup
    ```
 
 3. **Start Servers**:
    ```bash
-   voice server start
+   speakeasy server start
    ```
 
 4. **Integration (Claude Code)**:
    ```bash
-   voice hook-install
+   speakeasy hook-install
    ```
 
 ## Integrations
 
 ### Claude Code
-Run `voice hook-install` to automatically inject STT and TTS hooks into your `~/.claude/settings.json`.
+Run `speakeasy hook-install` to automatically inject STT and TTS hooks into your `~/.claude/settings.json`.
 
 ### Other Tools
-To integrate with any other tool, pipe its output to `voice speak`:
+To integrate with any other tool, pipe its output to `speakeasy speak`:
 ```bash
-my-agent-tool | voice speak
+my-agent-tool | speakeasy speak
 ```
 Or use the event-based hooks if the tool supports them.
 

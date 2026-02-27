@@ -2,9 +2,9 @@
 
 # Required parameters:
 # @raycast.schemaVersion 1
-# @raycast.title Voice Dictate
+# @raycast.title SpeakEasy Dictate
 # @raycast.mode silent
-# @raycast.packageName Voice
+# @raycast.packageName SpeakEasy
 
 # Optional parameters:
 # @raycast.icon 🎤
@@ -12,7 +12,6 @@
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin"
 
-VOICE_BIN="/Users/arhumsavera/scripts/voice/voice"
+SPEAKEASY_BIN="/Users/arhumsavera/scripts/voice/speakeasy/speakeasy"
 
-echo "$(date): dictate called" >> /tmp/voice-raycast.log
-"$VOICE_BIN" dictate 2>&1
+"$SPEAKEASY_BIN" dictate >> /tmp/speakeasy-raycast.log 2>&1
