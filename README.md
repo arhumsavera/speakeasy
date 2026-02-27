@@ -127,7 +127,6 @@ SpeakEasy uses the Kokoro model. Available voices include:
 
 ### Reliability & Diagnostics
 - [ ] **Doctor Command**: Add `speakeasy doctor` to validate setup, model files, mute state, and hook/plugin installs.
-- [ ] **Integration Smoke Tests**: Add scripted checks for Claude/OpenCode hook paths and assistant-only narration behavior.
 - [ ] **Version Compatibility Matrix**: Track known-good OpenCode/Claude versions and expected hook behavior.
 - [ ] **Logs Command**: Add `speakeasy logs` to tail STT/TTS/hook logs from one place.
 
