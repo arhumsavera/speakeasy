@@ -430,7 +430,7 @@ EOF
             log "Claude hooks installed to $settings. Please restart Claude Code."
             ;;
         opencode)
-            local opencode_config="$HOME/.opencode.json"
+            local opencode_config="$HOME/.config/opencode/opencode.json"
             if [ ! -f "$opencode_config" ]; then
                 echo "{}" > "$opencode_config"
             fi
