@@ -105,11 +105,21 @@ SpeakEasy uses the Kokoro model. Available voices include:
 
 ## 🗺 Roadmap
 
-- [ ] **Aider Integration**: Native hooks for the Aider CLI agent.
-- [ ] **Custom Model Support**: Interface to swap Whisper models (e.g., `distil-whisper`) for even faster STT.
-- [ ] **Auto-Mute**: Automatically pause TTS when the user starts speaking (VAD).
-- [ ] **Linux Support**: Porting the `afplay` and `osascript` dependencies to Linux alternatives.
-- [ ] **MCP Server**: Expose SpeakEasy as an MCP (Model Context Protocol) server.
+### Core Integrations
+- [ ] **Aider Support**: Native hooks and configuration for the Aider CLI agent.
+- [ ] **MCP Server**: Official Model Context Protocol implementation for native support in Claude Desktop, Cursor, and Zed.
+- [ ] **OpenCode/Aider**: Standardized "Listen" and "Speak" connectors for other popular agents.
+
+### Infrastructure & Performance
+- [ ] **System Daemon**: `speakeasy service install` to manage servers via `launchd` (macOS) or `systemd` (Linux).
+- [ ] **Dockerization**: Containerized Whisper/Kokoro servers with NVIDIA/CUDA support for Linux users.
+- [ ] **WebSockets**: Transition from HTTP to WebSocket streaming for lower latency and real-time interruption handling.
+- [ ] **VAD (Voice Activity Detection)**: Integrate Silero VAD to enable "auto-stop" recording when you finish speaking.
+
+### UX & Customization
+- [ ] **Web Dashboard**: A local `localhost` UI to monitor logs, toggle mute, and switch voices live.
+- [ ] **Distil-Whisper**: Support for distilled models to achieve even faster transcription on lower-end hardware.
+- [ ] **Wake Word**: Optional "Always Listening" mode with a customizable wake word (e.g., "Hey SpeakEasy").
 
 ---
 
