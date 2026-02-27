@@ -122,9 +122,15 @@ SpeakEasy uses the Kokoro model. Available voices include:
 ## 🗺 Roadmap
 
 ### Core Integrations
+- [x] **OpenCode Support**: Local plugin-based narration for assistant responses.
 - [ ] **Aider Support**: Native hooks and configuration for the Aider CLI agent.
 - [ ] **MCP Server**: Official Model Context Protocol implementation for native support in Claude Desktop, Cursor, and Zed.
-- [ ] **OpenCode/Aider**: Standardized "Listen" and "Speak" connectors for other popular agents.
+
+### Reliability & Diagnostics
+- [ ] **Doctor Command**: Add `speakeasy doctor` to validate setup, model files, mute state, and hook/plugin installs.
+- [ ] **Integration Smoke Tests**: Add scripted checks for Claude/OpenCode hook paths and assistant-only narration behavior.
+- [ ] **Version Compatibility Matrix**: Track known-good OpenCode/Claude versions and expected hook behavior.
+- [ ] **Logs Command**: Add `speakeasy logs` to tail STT/TTS/hook logs from one place.
 
 ### Infrastructure & Performance
 - [ ] **System Daemon**: `speakeasy service install` to manage servers via `launchd` (macOS) or `systemd` (Linux).
@@ -136,6 +142,7 @@ SpeakEasy uses the Kokoro model. Available voices include:
 - [ ] **Web Dashboard**: A local `localhost` UI to monitor logs, toggle mute, and switch voices live.
 - [ ] **Distil-Whisper**: Support for distilled models to achieve even faster transcription on lower-end hardware.
 - [ ] **Wake Word**: Optional "Always Listening" mode with a customizable wake word (e.g., "Hey SpeakEasy").
+- [ ] **First-Run Checklist**: Add guided verification steps to confirm STT, TTS, and CLI integrations are working.
 
 ---
 
