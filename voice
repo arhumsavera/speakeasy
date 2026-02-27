@@ -1,0 +1,451 @@
+#!/usr/bin/env bash
+
+# Local Voice - A universal, fully local voice interface for CLI agents.
+# STT (whisper.cpp) + TTS (kokoro) + Warm HTTP Servers.
+
+set -e
+
+# --- Configuration & Paths ---
+CONFIG_DIR="$HOME/.config/voice"
+DATA_DIR="$HOME/.local/share/voice"
+CACHE_DIR="$DATA_DIR/cache"
+MODEL_DIR="$DATA_DIR/models"
+KOKORO_DIR="$DATA_DIR/kokoro"
+
+CONFIG_FILE="$CONFIG_DIR/config"
+MUTE_FILE="$CONFIG_DIR/tts-enabled"
+PROJECT_VOICES_FILE="$CONFIG_DIR/project-voices.conf"
+
+WHISPER_PORT=8787
+KOKORO_PORT=8788
+
+# Default settings
+WHISPER_MODEL="ggml-large-v3-turbo-q5_0.bin"
+SILENCE_THRESHOLD="3%"
+SILENCE_DURATION="2.0"
+RECORD_MAX_DURATION="120"
+TTS_VOICE="af_heart"
+TTS_SPEED="1.1"
+TTS_LANG="en-us"
+
+# Create directories
+mkdir -p "$CONFIG_DIR" "$DATA_DIR" "$CACHE_DIR" "$MODEL_DIR" "$KOKORO_DIR"
+
+# Load config if exists
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+fi
+
+# --- Helpers ---
+
+log() {
+    echo -e "\033[0;32m[local-voice]\033[0m $1"
+}
+
+error() {
+    echo -e "\033[0;31m[error]\033[0m $1" >&2
+}
+
+is_muted() {
+    [ ! -f "$MUTE_FILE" ]
+}
+
+is_recording() {
+    [ -f "$CACHE_DIR/dictate.pid" ]
+}
+
+play_sound() {
+    local sound=$1
+    case $sound in
+        ping)  afplay /System/Library/Sounds/Ping.aiff & ;;
+        pop)   afplay /System/Library/Sounds/Pop.aiff & ;;
+        glass) afplay /System/Library/Sounds/Glass.aiff & ;;
+        basso) afplay /System/Library/Sounds/Basso.aiff & ;;
+    esac
+}
+
+get_project_voice() {
+    local project_path=$1
+    if [ -z "$project_path" ]; then
+        echo "$TTS_VOICE"
+        return
+    fi
+    
+    local project_name=$(basename "$project_path")
+    
+    # Check manual mapping
+    if [ -f "$PROJECT_VOICES_FILE" ]; then
+        local mapped=$(grep "^$project_name=" "$PROJECT_VOICES_FILE" | cut -d'=' -f2)
+        if [ -n "$mapped" ]; then
+            echo "$mapped"
+            return
+        fi
+        
+        local default=$(grep "^DEFAULT=" "$PROJECT_VOICES_FILE" | cut -d'=' -f2)
+        if [ -n "$default" ]; then
+            TTS_VOICE="$default"
+        fi
+    fi
+    
+    # Auto-assign from pool based on hash
+    local voices=("af_heart" "am_adam" "bf_emma" "bm_george" "af_nova" "am_michael")
+    if command -v md5 >/dev/null; then
+        local hash=$(printf "%s" "$project_name" | md5 | cut -c1-4)
+        local idx=$(( 0x$hash % ${#voices[@]} ))
+    else
+        local idx=0
+    fi
+    echo "${voices[$idx]}"
+}
+
+# --- Commands ---
+
+cmd_setup() {
+    log "Setting up dependencies..."
+    
+    # Check for Homebrew
+    if ! command -v brew &> /dev/null; then
+        error "Homebrew not found. Please install it from https://brew.sh"
+        exit 1
+    fi
+    
+    # Install brew deps
+    brew install sox ffmpeg jq espeak-ng whisper-cpp
+    
+    # Install uv if missing
+    if ! command -v uv &> /dev/null; then
+        log "Installing uv..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+    fi
+    
+    # Download models
+    log "Downloading Whisper model..."
+    if [ ! -f "$MODEL_DIR/$WHISPER_MODEL" ]; then
+        curl -L "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$WHISPER_MODEL" -o "$MODEL_DIR/$WHISPER_MODEL"
+    fi
+    
+    log "Downloading Kokoro models..."
+    if [ ! -f "$KOKORO_DIR/kokoro-v1.0.onnx" ]; then
+        curl -L "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx" -o "$KOKORO_DIR/kokoro-v1.0.onnx"
+    fi
+    if [ ! -f "$KOKORO_DIR/voices-v1.0.bin" ]; then
+        curl -L "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin" -o "$KOKORO_DIR/voices-v1.0.bin"
+    fi
+    
+    # Deploy tts-server.py
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    if [ -f "$SCRIPT_DIR/tts-server.py" ]; then
+        cp "$SCRIPT_DIR/tts-server.py" "$CONFIG_DIR/tts-server.py"
+    fi
+    chmod +x "$CONFIG_DIR/tts-server.py"
+    
+    # Default config
+    if [ ! -f "$CONFIG_FILE" ]; then
+        cat > "$CONFIG_FILE" <<EOF
+WHISPER_MODEL="$WHISPER_MODEL"
+SILENCE_THRESHOLD="$SILENCE_THRESHOLD"
+SILENCE_DURATION="$SILENCE_DURATION"
+RECORD_MAX_DURATION="$RECORD_MAX_DURATION"
+TTS_VOICE="$TTS_VOICE"
+TTS_SPEED="$TTS_SPEED"
+TTS_LANG="$TTS_LANG"
+EOF
+    fi
+    
+    # Enable TTS by default
+    touch "$MUTE_FILE"
+    
+    log "Setup complete! Run 'voice server start' to begin."
+}
+
+cmd_server_start() {
+    log "Starting servers..."
+    
+    # Whisper server
+    if ! curl -s "http://127.0.0.1:$WHISPER_PORT/health" > /dev/null; then
+        log "Starting whisper-server on port $WHISPER_PORT..."
+        whisper-server \
+            --model "$MODEL_DIR/$WHISPER_MODEL" \
+            --host 127.0.0.1 \
+            --port "$WHISPER_PORT" \
+            --convert \
+            --no-timestamps > "$DATA_DIR/whisper-server.log" 2>&1 &
+        echo $! > "$DATA_DIR/server.pid"
+    else
+        log "Whisper server already running."
+    fi
+    
+    # Kokoro server
+    if ! curl -s "http://127.0.0.1:$KOKORO_PORT/health" > /dev/null; then
+        log "Starting kokoro-server on port $KOKORO_PORT..."
+        uv run --quiet --with kokoro-onnx --with soundfile --with numpy \
+            "$CONFIG_DIR/tts-server.py" \
+            --host 127.0.0.1 \
+            --port "$KOKORO_PORT" \
+            --model "$KOKORO_DIR/kokoro-v1.0.onnx" \
+            --voices "$KOKORO_DIR/voices-v1.0.bin" > "$DATA_DIR/kokoro-server.log" 2>&1 &
+        echo $! > "$DATA_DIR/tts-server.pid"
+    else
+        log "Kokoro server already running."
+    fi
+    
+    log "Servers warming up. Check 'voice status' in a moment."
+}
+
+cmd_server_stop() {
+    log "Stopping servers..."
+    if [ -f "$DATA_DIR/server.pid" ]; then
+        kill $(cat "$DATA_DIR/server.pid") 2>/dev/null || true
+        rm "$DATA_DIR/server.pid"
+    fi
+    if [ -f "$DATA_DIR/tts-server.pid" ]; then
+        kill $(cat "$DATA_DIR/tts-server.pid") 2>/dev/null || true
+        rm "$DATA_DIR/tts-server.pid"
+    fi
+    pkill whisper-server || true
+    pkill -f tts-server.py || true
+    log "Servers stopped."
+}
+
+cmd_dictate() {
+    local pid_file="$CACHE_DIR/dictate.pid"
+    
+    if [ -f "$pid_file" ]; then
+        # STOP RECORDING
+        local pid=$(cat "$pid_file")
+        kill "$pid" 2>/dev/null || true
+        rm "$pid_file"
+        play_sound pop
+        
+        # Transcribe
+        local wav_file="$CACHE_DIR/recording.wav"
+        if [ ! -f "$wav_file" ] || [ ! -s "$wav_file" ]; then
+            play_sound basso
+            exit 0
+        fi
+        
+        # Call whisper-server
+        local response=$(curl -s -F "file=@$wav_file" "http://127.0.0.1:$WHISPER_PORT/inference")
+        
+        # Check if response is valid JSON
+        if ! echo "$response" | jq -e . >/dev/null 2>&1; then
+             play_sound basso
+             exit 0
+        fi
+
+        local text=$(echo "$response" | jq -r '.text // empty' 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        
+        if [ -z "$text" ] || [ "$text" == "null" ]; then
+            play_sound basso
+        else
+            # Remove trailing newlines/quotes from transcription
+            text=$(echo "$text" | tr -d '\n\r' | sed 's/^"//;s/"$//')
+            printf "%s" "$text" | pbcopy
+            sleep 0.2
+            osascript -e 'tell application "System Events" to keystroke "v" using {command down}'
+            play_sound glass
+        fi
+    else
+        # START RECORDING
+        # Kill any active TTS
+        pkill -x afplay || true
+        # Release speech lock
+        rm -rf /tmp/voice-speech.lock
+        
+        # Cleanup cache
+        rm -f "$CACHE_DIR"/vc_*
+        
+        play_sound ping
+        
+        # Ensure server is running (auto-start)
+        if ! curl -s "http://127.0.0.1:$WHISPER_PORT/health" > /dev/null; then
+            cmd_server_start >/dev/null 2>&1
+        fi
+        
+        # Record using sox (rec)
+        rec -q -c 1 -r 16000 "$CACHE_DIR/recording.wav" gain 20 >/dev/null 2>&1 &
+        echo $! > "$pid_file"
+    fi
+}
+
+cmd_speak() {
+    local text=""
+    local project=""
+    
+    while [[ "$#" -gt 0 ]]; do
+        case $1 in
+            --project) project="$2"; shift ;;
+            *) text="$text $1" ;;
+        esac
+        shift
+    done
+    
+    if [ -z "$text" ]; then
+        text=$(cat)
+    fi
+    
+    if is_muted; then exit 0; fi
+    
+    # Wait for dictation to finish
+    while is_recording; do sleep 0.2; done
+    
+    # Acquire lock
+    until mkdir /tmp/voice-speech.lock 2>/dev/null; do
+        if is_recording; then exit 0; fi
+        sleep 0.1
+    done
+    trap 'rm -rf /tmp/voice-speech.lock' EXIT
+    
+    # Strip markdown and code
+    local cleaned=$(echo "$text" | sed 's/```[^`]*```//g' | sed 's/`[^`]*`//g' | sed 's/^## *//g' | sed 's/\*\*//g' | sed 's/\*//g' | sed 's/^- //g' | sed 's/^[0-9]*\. //g')
+    
+    # Split into sentences (simple regex)
+    # We use a python one-liner for reliable sentence splitting
+    local sentences=$(python3 -c "import sys, re; text=sys.stdin.read(); print('\n'.join(re.split(r'(?<=[.!?])\s+', text)))" <<< "$cleaned")
+    
+    local voice=$(get_project_voice "$project")
+    
+    # Chunked streaming
+    while IFS= read -r line; do
+        if [ -z "$line" ]; then continue; fi
+        if is_muted || is_recording; then break; fi
+        
+        local temp_wav="$CACHE_DIR/vc_$(date +%s%N).wav"
+        
+        # Generate
+        if curl -s "http://127.0.0.1:$KOKORO_PORT/health" > /dev/null; then
+            curl -s -X POST "http://127.0.0.1:$KOKORO_PORT/speak" \
+                -H "Content-Type: application/json" \
+                -d "{\"text\": \"$(echo "$line" | sed 's/"/\\"/g')\", \"voice\": \"$voice\", \"speed\": $TTS_SPEED}" \
+                --output "$temp_wav"
+        else
+            # Fallback to cold CLI
+            kokoro-tts --text "$line" --voice "$voice" --speed "$TTS_SPEED" --output "$temp_wav" >/dev/null 2>&1
+        fi
+        
+        # Play
+        if [ -f "$temp_wav" ]; then
+            if ! is_muted && ! is_recording; then
+                afplay "$temp_wav"
+            fi
+            rm "$temp_wav"
+        fi
+        
+    done <<< "$sentences"
+}
+
+cmd_status() {
+    echo "--- Local Voice Status ---"
+    if is_muted; then
+        echo -e "TTS: \033[0;31mMUTED\033[0m"
+    else
+        echo -e "TTS: \033[0;32mENABLED\033[0m"
+    fi
+    
+    if curl -s "http://127.0.0.1:$WHISPER_PORT/health" > /dev/null; then
+        echo -e "Whisper Server: \033[0;32mRUNNING\033[0m (port $WHISPER_PORT)"
+    else
+        echo -e "Whisper Server: \033[0;31mSTOPPED\033[0m"
+    fi
+    
+    if curl -s "http://127.0.0.1:$KOKORO_PORT/health" > /dev/null; then
+        echo -e "Kokoro Server: \033[0;32mRUNNING\033[0m (port $KOKORO_PORT)"
+    else
+        echo -e "Kokoro Server: \033[0;31mSTOPPED\033[0m"
+    fi
+    
+    echo "Config: $CONFIG_FILE"
+    echo "Models: $MODEL_DIR"
+}
+
+cmd_hook_install() {
+    log "Installing Claude Code hooks..."
+    
+    mkdir -p "$CONFIG_DIR"
+    local voice_bin="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    
+    # Create stop hook
+    cat > "$CONFIG_DIR/claude-hook-stop.sh" <<EOF
+#!/usr/bin/env bash
+INPUT=\$(cat)
+RAW=\$(echo "\$INPUT" | jq -r '.last_assistant_message // empty' 2>/dev/null)
+[ -z "\$RAW" ] && exit 0
+CWD=\$(echo "\$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+MSG=\$(echo "\$RAW" | sed 's/\`\`\`[^\`]*\`\`\`//g' | sed 's/\`[^\`]*\`//g' | sed 's/^## *//g' | sed 's/\*\*//g' | sed 's/\*//g' | sed 's/^- //g' | sed 's/^[0-9]*\. //g')
+TRIMMED=\$(echo "\$MSG" | tr -d '[:space:]')
+[ \${#TRIMMED} -lt 10 ] && exit 0
+MAX=2000
+if [ \${#MSG} -gt \$MAX ]; then MSG="\${MSG:0:\$MAX}..."; fi
+if [ -n "\$CWD" ]; then
+    "$voice_bin" speak --project "\$CWD" "\$MSG" &
+else
+    "$voice_bin" speak "\$MSG" &
+fi
+exit 0
+EOF
+    chmod +x "$CONFIG_DIR/claude-hook-stop.sh"
+
+    # Create notify hook
+    cat > "$CONFIG_DIR/claude-hook-notify.sh" <<EOF
+#!/usr/bin/env bash
+INPUT=\$(cat)
+MSG=\$(echo "\$INPUT" | jq -r '.message // empty' 2>/dev/null)
+[ -z "\$MSG" ] && exit 0
+CWD=\$(echo "\$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+if [ -n "\$CWD" ]; then
+    "$voice_bin" speak --project "\$CWD" "\$MSG" &
+else
+    "$voice_bin" speak "\$MSG" &
+fi
+exit 0
+EOF
+    chmod +x "$CONFIG_DIR/claude-hook-notify.sh"
+
+    # Update Claude settings
+    local settings="$HOME/.claude/settings.json"
+    if [ ! -f "$settings" ]; then
+        mkdir -p "$HOME/.claude"
+        echo "{}" > "$settings"
+    fi
+    
+    # Use jq properly to merge/add hooks using the correct schema
+    local tmp_settings=$(mktemp)
+    jq --arg stop "$CONFIG_DIR/claude-hook-stop.sh" \
+       --arg notify "$CONFIG_DIR/claude-hook-notify.sh" \
+       '.hooks = {
+         "Notification": [{
+           "matcher": "*",
+           "hooks": [{"type": "command", "command": ("cat | " + $notify), "async": true}]
+         }],
+         "Stop": [{
+           "matcher": "*",
+           "hooks": [{"type": "command", "command": ("cat | " + $stop), "async": true}]
+         }]
+       }' \
+       "$settings" > "$tmp_settings" && mv "$tmp_settings" "$settings"
+    
+    log "Hooks installed to $settings. Please restart Claude Code."
+}
+
+# --- Main Dispatch ---
+
+case "$1" in
+    setup) cmd_setup ;;
+    server)
+        case "$2" in
+            start) cmd_server_start ;;
+            stop)  cmd_server_stop ;;
+            status) cmd_status ;;
+            *) error "Usage: voice server {start|stop|status}" ;;
+        esac
+        ;;
+    dictate) cmd_dictate ;;
+    speak) shift; cmd_speak "$@" ;;
+    mute) rm -f "$MUTE_FILE"; pkill -x afplay || true; log "Muted." ;;
+    unmute) touch "$MUTE_FILE"; log "Unmuted." ;;
+    status) cmd_status ;;
+    hook-install) cmd_hook_install ;;
+    help|*)
+        echo "Usage: voice {setup|server|dictate|speak|mute|unmute|status|hook-install|help}"
+        ;;
+esac

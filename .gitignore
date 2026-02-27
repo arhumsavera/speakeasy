@@ -1,0 +1,9 @@
+# Cache and Logs
+*.log
+*.pid
+cache/
+models/
+kokoro/
+
+# OS files
+.DS_Store
