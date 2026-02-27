@@ -7,7 +7,7 @@ The architecture uses "warm" background servers to keep transcription (STT) and 
 ## 🧭 Architecture
 
 ```mermaid
-flowchart LR
+flowchart TD
   U["User (Mic / Keyboard)"]
   D["voice-dictate.sh (PTT)"]
   W["whisper-server :8787 (STT)"]
