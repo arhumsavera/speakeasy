@@ -435,10 +435,11 @@ EOF
                 echo "{}" > "$opencode_config"
             fi
             local tmp_config=$(mktemp)
+            # Use the 'experimental.hook.session_completed' pattern for OpenCode
             jq --arg bin "$speakeasy_bin" \
-               '.hooks.after = [{ "run": ("echo \"{output}\" | " + $bin + " speak"), "description": "Speak response" }]' \
+               '.experimental.hook.session_completed = [{ "command": [$bin, "speak", "Task completed"] }]' \
                "$opencode_config" > "$tmp_config" && mv "$tmp_config" "$opencode_config"
-            log "OpenCode hooks installed to $opencode_config."
+            log "OpenCode experimental hooks installed to $opencode_config."
             ;;
         *)
             error "Unknown target: $target. Supported: claude, opencode"
