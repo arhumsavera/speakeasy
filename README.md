@@ -51,9 +51,10 @@ The architecture uses "warm" background servers to keep transcription (STT) and 
    speakeasy server start
    ```
 
-4. **Integration (Claude Code)**:
+4. **Install Agent Hooks**:
    ```bash
-   speakeasy hook-install
+   speakeasy hook-install claude
+   speakeasy hook-install opencode
    ```
 
 ---
@@ -72,6 +73,21 @@ To enable the push-to-talk experience:
 ## ⚙️ Configuration
 
 Settings are stored in `~/.config/speakeasy/config`.
+
+### Agent Integrations
+
+- **Claude Code**:
+  ```bash
+  speakeasy hook-install claude
+  ```
+  This writes hook scripts to `~/.config/speakeasy` and updates `~/.claude/settings.json`.
+
+- **OpenCode**:
+  ```bash
+  speakeasy hook-install opencode
+  ```
+  This installs a plugin at `~/.config/opencode/plugins/speakeasy.ts` and adds it to `~/.config/opencode/opencode.json`.
+  Run OpenCode normally (`opencode`) after installation.
 
 ### Global Settings
 Edit the config file to change the default behavior:

@@ -430,31 +430,111 @@ EOF
             log "Claude hooks installed to $settings. Please restart Claude Code."
             ;;
         opencode)
-            local opencode_plugin_dir="$HOME/.config/opencode/plugins"
+            local opencode_config_dir="$HOME/.config/opencode"
+            local opencode_plugin_dir="$opencode_config_dir/plugins"
+            local opencode_plugin_file="$opencode_plugin_dir/speakeasy.ts"
+            local opencode_config_file="$opencode_config_dir/opencode.json"
+            local speakeasy_bin_json
+            local tmp_config
             mkdir -p "$opencode_plugin_dir"
-            cat > "$opencode_plugin_dir/speakeasy.ts" <<EOF
+            speakeasy_bin_json=$(jq -Rn --arg v "$speakeasy_bin" '$v')
+            cat > "$opencode_plugin_file" <<'EOF'
 import type { Plugin } from "@opencode-ai/plugin";
+import { spawn } from "node:child_process";
 
-export const SpeakEasyPlugin: Plugin = async ({ $ }) => {
+const cleanText = (text: string): string =>
+  text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`]*`/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const plugin: Plugin = async () => {
+  const speakeasy_bin = __SPEAKEASY_BIN__;
+  let lastSpoken = "";
+  let lastSpokenMessageID = "";
+  const assistantMessageIDs = new Set<string>();
+
+  const speakIfUseful = (raw: string, source: string) => {
+    const text = cleanText(raw);
+    if (text.length < 3 || text === lastSpoken) return;
+    lastSpoken = text;
+
+    try {
+      const child = spawn(speakeasy_bin, ["speak", "--project", process.cwd(), text], {
+        detached: true,
+        stdio: "ignore"
+      });
+      child.unref();
+    } catch {}
+  };
+
   return {
-    "tool.execute.after": async (input) => {
-      // Trigger a short chime or notification after tool use
-      await \$ \`"$speakeasy_bin" speak --project "\${process.cwd()}" "Action complete." & \`;
-    },
-    "chat.message": async (message) => {
-      if (message.role === "assistant") {
-        // Speak the actual response
-        const msg = message.content.replace(/\`\`\`[^\`]*\`\`\`/g, "").replace(/\`[^\`]*\`/g, "");
-        if (msg.length > 10) {
-            await \$ \`"$speakeasy_bin" speak --project "\${process.cwd()}" "\${msg}" & \`;
+    event: async ({ event }) => {
+      const type = String((event as { type?: unknown })?.type ?? "");
+      if (type === "message.updated") {
+        const e = event as { properties?: { info?: { id?: string; role?: string } } };
+        const messageID = e.properties?.info?.id ?? "";
+        const role = e.properties?.info?.role ?? "";
+        if (messageID && role === "assistant") {
+          assistantMessageIDs.add(messageID);
         }
+        return;
       }
+      if (type !== "message.part.updated") return;
+
+      const e = event as {
+        properties?: {
+          part?: {
+            type?: string;
+            text?: string;
+            messageID?: string;
+          };
+        };
+      };
+
+      const part = e.properties?.part;
+      if (!part || part.type !== "text") return;
+
+      const messageID = part.messageID ?? "";
+      const text = cleanText(part.text ?? "");
+      if (text.length < 3) return;
+      if (!messageID || !assistantMessageIDs.has(messageID)) return;
+      if (messageID && messageID === lastSpokenMessageID && text === lastSpoken) return;
+
+      lastSpokenMessageID = messageID;
+      speakIfUseful(text, "event.message.part.updated");
     }
   };
 };
+
+export const SpeakEasyPlugin = plugin;
 EOF
-            log "OpenCode SpeakEasy plugin installed to $opencode_plugin_dir/speakeasy.ts."
-            log "OpenCode 1.2.15+ should detect this plugin automatically."
+            sed -i '' "s|__SPEAKEASY_BIN__|$speakeasy_bin_json|g" "$opencode_plugin_file"
+
+            if [ ! -f "$opencode_config_file" ]; then
+                echo '{"plugin":[]}' > "$opencode_config_file"
+            fi
+
+            tmp_config=$(mktemp)
+            if jq --arg plugin "file://$opencode_plugin_file" \
+                --arg raw "$opencode_plugin_file" \
+                '.plugin = (((.plugin // [])
+                  | map(select(
+                    . != "~/.config/opencode/plugins/speakeasy.ts"
+                    and . != $raw
+                    and . != $plugin
+                  ))) + [$plugin] | unique)' \
+                "$opencode_config_file" > "$tmp_config"; then
+                mv "$tmp_config" "$opencode_config_file"
+            else
+                rm -f "$tmp_config"
+                error "Failed to update $opencode_config_file. Ensure it is valid JSON."
+            fi
+
+            log "OpenCode SpeakEasy plugin installed to $opencode_plugin_file."
+            log "OpenCode config updated: $opencode_config_file"
+            log "Launch OpenCode normally: opencode"
             ;;
         *)
             error "Unknown target: $target. Supported: claude, opencode"
