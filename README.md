@@ -4,6 +4,28 @@
 
 The architecture uses "warm" background servers to keep transcription (STT) and speech (TTS) models in memory, enabling near-instant response times.
 
+## 🧭 Architecture
+
+```mermaid
+flowchart LR
+  U["User (Mic / Keyboard)"]
+  D["voice-dictate.sh (PTT)"]
+  W["whisper-server :8787 (STT)"]
+  A["CLI Agent (Claude / OpenCode)"]
+  H["Hook/Plugin (assistant-only text)"]
+  S["speakeasy speak"]
+  K["kokoro-server :8788 (TTS)"]
+  O["afplay (Speaker)"]
+
+  U --> D
+  D --> W
+  W --> A
+  A --> H
+  H --> S
+  S --> K
+  K --> O
+```
+
 ---
 
 ## 🚀 Features
