@@ -430,16 +430,31 @@ EOF
             log "Claude hooks installed to $settings. Please restart Claude Code."
             ;;
         opencode)
-            local opencode_config="$HOME/.config/opencode/opencode.json"
-            if [ ! -f "$opencode_config" ]; then
-                echo "{}" > "$opencode_config"
-            fi
-            local tmp_config=$(mktemp)
-            # Use the 'experimental.hook.session_completed' pattern for OpenCode
-            jq --arg bin "$speakeasy_bin" \
-               '.experimental.hook.session_completed = [{ "command": [$bin, "speak", "Task completed"] }]' \
-               "$opencode_config" > "$tmp_config" && mv "$tmp_config" "$opencode_config"
-            log "OpenCode experimental hooks installed to $opencode_config."
+            local opencode_plugin_dir="$HOME/.config/opencode/plugins"
+            mkdir -p "$opencode_plugin_dir"
+            cat > "$opencode_plugin_dir/speakeasy.ts" <<EOF
+import type { Plugin } from "@opencode-ai/plugin";
+
+export const SpeakEasyPlugin: Plugin = async ({ $ }) => {
+  return {
+    "tool.execute.after": async (input) => {
+      // Trigger a short chime or notification after tool use
+      await \$ \`"$speakeasy_bin" speak --project "\${process.cwd()}" "Action complete." & \`;
+    },
+    "chat.message": async (message) => {
+      if (message.role === "assistant") {
+        // Speak the actual response
+        const msg = message.content.replace(/\`\`\`[^\`]*\`\`\`/g, "").replace(/\`[^\`]*\`/g, "");
+        if (msg.length > 10) {
+            await \$ \`"$speakeasy_bin" speak --project "\${process.cwd()}" "\${msg}" & \`;
+        }
+      }
+    }
+  };
+};
+EOF
+            log "OpenCode SpeakEasy plugin installed to $opencode_plugin_dir/speakeasy.ts."
+            log "Note: You may need to enable plugins in your opencode.json if not already."
             ;;
         *)
             error "Unknown target: $target. Supported: claude, opencode"
