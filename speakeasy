@@ -454,7 +454,12 @@ export const SpeakEasyPlugin: Plugin = async ({ $ }) => {
 };
 EOF
             log "OpenCode SpeakEasy plugin installed to $opencode_plugin_dir/speakeasy.ts."
-            log "Note: You may need to enable plugins in your opencode.json if not already."
+            
+            # Auto-enable the plugin in opencode.json
+            local tmp_config=$(mktemp)
+            jq '.plugins.local = ((.plugins.local // []) + ["speakeasy"] | unique)' \
+               "$opencode_config" > "$tmp_config" && mv "$tmp_config" "$opencode_config"
+            log "SpeakEasy plugin enabled in $opencode_config."
             ;;
         *)
             error "Unknown target: $target. Supported: claude, opencode"
