@@ -360,13 +360,16 @@ cmd_status() {
 }
 
 cmd_hook_install() {
-    log "Installing Claude Code hooks..."
+    local target="${1:-claude}"
+    log "Installing hooks for $target..."
     
     mkdir -p "$CONFIG_DIR"
     local speakeasy_bin="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
-    
-    # Create stop hook
-    cat > "$CONFIG_DIR/claude-hook-stop.sh" <<EOF
+
+    case "$target" in
+        claude)
+            # Create stop hook
+            cat > "$CONFIG_DIR/claude-hook-stop.sh" <<EOF
 #!/usr/bin/env bash
 INPUT=\$(cat)
 RAW=\$(echo "\$INPUT" | jq -r '.last_assistant_message // empty' 2>/dev/null)
@@ -384,10 +387,10 @@ else
 fi
 exit 0
 EOF
-    chmod +x "$CONFIG_DIR/claude-hook-stop.sh"
+            chmod +x "$CONFIG_DIR/claude-hook-stop.sh"
 
-    # Create notify hook
-    cat > "$CONFIG_DIR/claude-hook-notify.sh" <<EOF
+            # Create notify hook
+            cat > "$CONFIG_DIR/claude-hook-notify.sh" <<EOF
 #!/usr/bin/env bash
 INPUT=\$(cat)
 MSG=\$(echo "\$INPUT" | jq -r '.message // empty' 2>/dev/null)
@@ -400,32 +403,47 @@ else
 fi
 exit 0
 EOF
-    chmod +x "$CONFIG_DIR/claude-hook-notify.sh"
+            chmod +x "$CONFIG_DIR/claude-hook-notify.sh"
 
-    # Update Claude settings
-    local settings="$HOME/.claude/settings.json"
-    if [ ! -f "$settings" ]; then
-        mkdir -p "$HOME/.claude"
-        echo "{}" > "$settings"
-    fi
-    
-    # Use jq properly to merge/add hooks using the correct schema
-    local tmp_settings=$(mktemp)
-    jq --arg stop "$CONFIG_DIR/claude-hook-stop.sh" \
-       --arg notify "$CONFIG_DIR/claude-hook-notify.sh" \
-       '.hooks = {
-         "Notification": [{
-           "matcher": "*",
-           "hooks": [{"type": "command", "command": ("cat | " + $notify), "async": true}]
-         }],
-         "Stop": [{
-           "matcher": "*",
-           "hooks": [{"type": "command", "command": ("cat | " + $stop), "async": true}]
-         }]
-       }' \
-       "$settings" > "$tmp_settings" && mv "$tmp_settings" "$settings"
-    
-    log "Hooks installed to $settings. Please restart Claude Code."
+            # Update Claude settings
+            local settings="$HOME/.claude/settings.json"
+            if [ ! -f "$settings" ]; then
+                mkdir -p "$HOME/.claude"
+                echo "{}" > "$settings"
+            fi
+            
+            local tmp_settings=$(mktemp)
+            jq --arg stop "$CONFIG_DIR/claude-hook-stop.sh" \
+               --arg notify "$CONFIG_DIR/claude-hook-notify.sh" \
+               '.hooks = {
+                 "Notification": [{
+                   "matcher": "*",
+                   "hooks": [{"type": "command", "command": ("cat | " + $notify), "async": true}]
+                 }],
+                 "Stop": [{
+                   "matcher": "*",
+                   "hooks": [{"type": "command", "command": ("cat | " + $stop), "async": true}]
+                 }]
+               }' \
+               "$settings" > "$tmp_settings" && mv "$tmp_settings" "$settings"
+            
+            log "Claude hooks installed to $settings. Please restart Claude Code."
+            ;;
+        opencode)
+            local opencode_config="$HOME/.opencode.json"
+            if [ ! -f "$opencode_config" ]; then
+                echo "{}" > "$opencode_config"
+            fi
+            local tmp_config=$(mktemp)
+            jq --arg bin "$speakeasy_bin" \
+               '.hooks.after = [{ "run": ("echo \"{output}\" | " + $bin + " speak"), "description": "Speak response" }]' \
+               "$opencode_config" > "$tmp_config" && mv "$tmp_config" "$opencode_config"
+            log "OpenCode hooks installed to $opencode_config."
+            ;;
+        *)
+            error "Unknown target: $target. Supported: claude, opencode"
+            ;;
+    esac
 }
 
 # --- Main Dispatch ---
@@ -445,8 +463,9 @@ case "$1" in
     mute) rm -f "$MUTE_FILE"; pkill -x afplay || true; log "Muted." ;;
     unmute) touch "$MUTE_FILE"; log "Unmuted." ;;
     status) cmd_status ;;
-    hook-install) cmd_hook_install ;;
+    hook-install) shift; cmd_hook_install "$@" ;;
     help|*)
         echo "Usage: speakeasy {setup|server|dictate|speak|mute|unmute|status|hook-install|help}"
+        echo "Example hook-install: speakeasy hook-install {claude|opencode}"
         ;;
 esac
