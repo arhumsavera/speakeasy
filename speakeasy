@@ -278,6 +278,10 @@ cmd_dictate() {
 
 cmd_stop() {
     pkill -x afplay || true
+    if [ -f "$CACHE_DIR/speak.pid" ]; then
+        kill "$(cat "$CACHE_DIR/speak.pid")" 2>/dev/null || true
+        rm -f "$CACHE_DIR/speak.pid"
+    fi
     rm -rf /tmp/speakeasy-speech.lock
 }
 
@@ -307,7 +311,8 @@ cmd_speak() {
         if is_recording; then exit 0; fi
         sleep 0.1
     done
-    trap 'rm -rf /tmp/speakeasy-speech.lock' EXIT
+    echo $$ > "$CACHE_DIR/speak.pid"
+    trap 'rm -rf /tmp/speakeasy-speech.lock; rm -f "$CACHE_DIR/speak.pid"' EXIT
     
     # Strip markdown and code
     local cleaned=$(echo "$text" | sed 's/```[^`]*```//g' | sed 's/`[^`]*`//g' | sed 's/^## *//g' | sed 's/\*\*//g' | sed 's/\*//g' | sed 's/^- //g' | sed 's/^[0-9]*\. //g')
@@ -524,11 +529,14 @@ cmd_doctor() {
         warn "OpenCode config missing SpeakEasy plugin reference"
     fi
 
-    local macos_service="$HOME/Library/Services/Speak with SpeakEasy.workflow"
-    if [ -d "$macos_service" ]; then
-        ok "macOS right-click service installed"
+    local macos_speak="$HOME/Library/Services/Speak with SpeakEasy.workflow"
+    local macos_stop="$HOME/Library/Services/Stop SpeakEasy.workflow"
+    if [ -d "$macos_speak" ] && [ -d "$macos_stop" ]; then
+        ok "macOS services installed (Speak + Stop)"
+    elif [ -d "$macos_speak" ]; then
+        warn "macOS Stop service missing (run: speakeasy hook-install macos-service)"
     else
-        warn "macOS right-click service not installed (run: speakeasy hook-install macos-service)"
+        warn "macOS services not installed (run: speakeasy hook-install macos-service)"
     fi
     echo
 
@@ -795,11 +803,9 @@ EOF
 				<key>ActionParameters</key>
 				<dict>
 					<key>COMMAND_STRING</key>
-					<string>if [ -d /tmp/speakeasy-speech.lock ]; then
-	__SPEAKEASY_BIN__ stop
-else
-	__SPEAKEASY_BIN__ speak
-fi</string>
+					<string>TEXT=$(cat)
+__SPEAKEASY_BIN__ stop
+printf '%s' "$TEXT" | __SPEAKEASY_BIN__ speak</string>
 					<key>CheckedForUserDefaultShell</key>
 					<true/>
 					<key>inputMethod</key>
@@ -912,10 +918,179 @@ WFLOW
 </dict>
 </plist>
 INFOPLIST
+            # --- Stop SpeakEasy (no-input service, fires globally) ---
+            local stop_name="Stop SpeakEasy"
+            local stop_dir="$services_dir/$stop_name.workflow/Contents"
+            local stop_wflow="$stop_dir/document.wflow"
+            local suuid1 suuid2 suuid3
+            suuid1=$(uuidgen); suuid2=$(uuidgen); suuid3=$(uuidgen)
+            mkdir -p "$stop_dir"
+            cat > "$stop_wflow" <<'STOPWFLOW'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AMApplicationBuild</key>
+	<string>521</string>
+	<key>AMApplicationVersion</key>
+	<string>2.10</string>
+	<key>AMDocumentVersion</key>
+	<string>2</string>
+	<key>actions</key>
+	<array>
+		<dict>
+			<key>action</key>
+			<dict>
+				<key>AMAccepts</key>
+				<dict>
+					<key>Container</key>
+					<string>List</string>
+					<key>Optional</key>
+					<true/>
+					<key>Types</key>
+					<array/>
+				</dict>
+				<key>AMActionVersion</key>
+				<string>2.0.3</string>
+				<key>AMApplication</key>
+				<array>
+					<string>Automator</string>
+				</array>
+				<key>AMParameterProperties</key>
+				<dict>
+					<key>COMMAND_STRING</key>
+					<dict/>
+					<key>CheckedForUserDefaultShell</key>
+					<dict/>
+					<key>inputMethod</key>
+					<dict/>
+					<key>shell</key>
+					<dict/>
+					<key>source</key>
+					<dict/>
+				</dict>
+				<key>AMProvides</key>
+				<dict>
+					<key>Container</key>
+					<string>List</string>
+					<key>Types</key>
+					<array/>
+				</dict>
+				<key>ActionBundlePath</key>
+				<string>/System/Library/Automator/Run Shell Script.action</string>
+				<key>ActionName</key>
+				<string>Run Shell Script</string>
+				<key>ActionParameters</key>
+				<dict>
+					<key>COMMAND_STRING</key>
+					<string>__SPEAKEASY_BIN__ stop</string>
+					<key>CheckedForUserDefaultShell</key>
+					<true/>
+					<key>inputMethod</key>
+					<integer>1</integer>
+					<key>shell</key>
+					<string>/bin/bash</string>
+					<key>source</key>
+					<string></string>
+				</dict>
+				<key>BundleIdentifier</key>
+				<string>com.apple.RunShellScript</string>
+				<key>CFBundleVersion</key>
+				<string>2.0.3</string>
+				<key>CanShowSelectedItemsWhenRun</key>
+				<false/>
+				<key>CanShowWhenRun</key>
+				<true/>
+				<key>Category</key>
+				<array>
+					<string>AMCategoryUtilities</string>
+				</array>
+				<key>Class Name</key>
+				<string>RunShellScriptAction</string>
+				<key>InputUUID</key>
+				<string>__SUUID1__</string>
+				<key>Keywords</key>
+				<array>
+					<string>Shell</string>
+					<string>Script</string>
+					<string>Command</string>
+					<string>Run</string>
+					<string>Unix</string>
+				</array>
+				<key>OutputUUID</key>
+				<string>__SUUID2__</string>
+				<key>UUID</key>
+				<string>__SUUID3__</string>
+				<key>UnlockPassword</key>
+				<string></string>
+				<key>UserDefinedFields</key>
+				<dict/>
+				<key>isViewVisible</key>
+				<true/>
+			</dict>
+		</dict>
+	</array>
+	<key>connectors</key>
+	<dict/>
+	<key>workflowMetaData</key>
+	<dict>
+		<key>inputTypeIdentifier</key>
+		<string>com.apple.Automator.nothing</string>
+		<key>outputTypeIdentifier</key>
+		<string>com.apple.Automator.nothing</string>
+		<key>presentationMode</key>
+		<integer>11</integer>
+		<key>serviceInputTypeIdentifier</key>
+		<string>com.apple.Automator.nothing</string>
+		<key>serviceOutputTypeIdentifier</key>
+		<string>com.apple.Automator.nothing</string>
+		<key>serviceProcessesInput</key>
+		<integer>0</integer>
+		<key>workflowTypeIdentifier</key>
+		<string>com.apple.Automator.servicesMenu</string>
+	</dict>
+</dict>
+</plist>
+STOPWFLOW
+            sed -i '' \
+                -e "s|__SPEAKEASY_BIN__|$speakeasy_bin|g" \
+                -e "s|__SUUID1__|$suuid1|g" \
+                -e "s|__SUUID2__|$suuid2|g" \
+                -e "s|__SUUID3__|$suuid3|g" \
+                "$stop_wflow"
+            cat > "$stop_dir/Info.plist" <<'STOPINFO'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.apple.automator.Stop-SpeakEasy</string>
+	<key>CFBundleName</key>
+	<string>Stop SpeakEasy</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Stop SpeakEasy</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>doService</string>
+			<key>NSPortName</key>
+			<string>Stop SpeakEasy</string>
+		</dict>
+	</array>
+</dict>
+</plist>
+STOPINFO
             /System/Library/CoreServices/pbs -flush 2>/dev/null || true
-            log "macOS service installed: '$service_name'"
-            log "Select text → right-click → Services → '$service_name'"
-            log "If not visible: System Settings → Keyboard → Shortcuts → Services → enable it"
+            log "macOS services installed: '$service_name' + '$stop_name'"
+            log "Assign shortcuts in: System Settings → Keyboard → Shortcuts → Services"
+            log "  '$service_name'  — select text, press shortcut → speaks (stops any current)"
+            log "  '$stop_name'     — press shortcut anytime → stops speech immediately"
             ;;
         *)
             error "Unknown target: $target. Supported: claude, opencode, macos-service"
