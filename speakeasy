@@ -26,7 +26,7 @@ SILENCE_THRESHOLD="3%"
 SILENCE_DURATION="2.0"
 RECORD_MAX_DURATION="120"
 TTS_VOICE="af_heart"
-TTS_SPEED="1.1"
+TTS_SPEED="1.2"
 TTS_LANG="en-us"
 
 # Create directories
@@ -65,38 +65,45 @@ play_sound() {
     esac
 }
 
+wait_for_server() {
+    local url="$1"
+    local name="$2"
+    local max_attempts="${3:-60}"
+    local i=0
+    while ! curl -s "$url" > /dev/null 2>&1; do
+        if [ "$i" -ge "$max_attempts" ]; then
+            error "$name did not become ready in time"
+            return 1
+        fi
+        sleep 0.5
+        i=$((i + 1))
+    done
+}
+
 get_project_voice() {
     local project_path=$1
     if [ -z "$project_path" ]; then
         echo "$TTS_VOICE"
         return
     fi
-    
+
     local project_name=$(basename "$project_path")
-    
-    # Check manual mapping
+
     if [ -f "$PROJECT_VOICES_FILE" ]; then
         local mapped=$(grep "^$project_name=" "$PROJECT_VOICES_FILE" | cut -d'=' -f2)
         if [ -n "$mapped" ]; then
             echo "$mapped"
             return
         fi
-        
+
         local default=$(grep "^DEFAULT=" "$PROJECT_VOICES_FILE" | cut -d'=' -f2)
         if [ -n "$default" ]; then
-            TTS_VOICE="$default"
+            echo "$default"
+            return
         fi
     fi
-    
-    # Auto-assign from pool based on hash
-    local voices=("af_heart" "am_adam" "bf_emma" "bm_george" "af_nova" "am_michael")
-    if command -v md5 >/dev/null; then
-        local hash=$(printf "%s" "$project_name" | md5 | cut -c1-4)
-        local idx=$(( 0x$hash % ${#voices[@]} ))
-    else
-        local idx=0
-    fi
-    echo "${voices[$idx]}"
+
+    echo "$TTS_VOICE"
 }
 
 # --- Commands ---
@@ -300,38 +307,48 @@ cmd_speak() {
     # Strip markdown and code
     local cleaned=$(echo "$text" | sed 's/```[^`]*```//g' | sed 's/`[^`]*`//g' | sed 's/^## *//g' | sed 's/\*\*//g' | sed 's/\*//g' | sed 's/^- //g' | sed 's/^[0-9]*\. //g')
     
-    # Split into sentences (simple regex)
-    # We use a python one-liner for reliable sentence splitting
-    local sentences=$(python3 -c "import sys, re; text=sys.stdin.read(); print('\n'.join(re.split(r'(?<=[.!?])\s+', text)))" <<< "$cleaned")
+    # Normalize PDF hard line breaks (single \n → space, double \n kept as paragraph break)
+    # Strip commas from numbers (5,000 → 5000 so TTS says "five thousand" not "five zero zero zero")
+    # then split into sentences so each TTS chunk is a full sentence, not a physical line
+    local sentences=$(python3 -c "
+import sys, re
+text = sys.stdin.read()
+text = re.sub(r'(\w)-\n(\w)', r'\1\2', text)
+text = re.sub(r'\n{2,}', '\n\n', text)
+text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+text = re.sub(r'(?<=\d),(?=\d{3})', '', text)
+parts = re.split(r'(?<=[.!?])\s+', text)
+print('\n'.join(s.strip() for s in parts if s.strip()))
+" <<< "$cleaned")
     
     local voice=$(get_project_voice "$project")
-    
+
+    # Auto-start servers if not running, then wait for Kokoro to be ready
+    if ! curl -s "http://127.0.0.1:$KOKORO_PORT/health" > /dev/null 2>&1; then
+        cmd_server_start >/dev/null 2>&1
+        wait_for_server "http://127.0.0.1:$KOKORO_PORT/health" "Kokoro" || return 1
+    fi
+
     # Chunked streaming
     while IFS= read -r line; do
         if [ -z "$line" ]; then continue; fi
         if is_muted || is_recording; then break; fi
-        
+
         local temp_wav="$CACHE_DIR/vc_$(date +%s%N).wav"
-        
-        # Generate
-        if curl -s "http://127.0.0.1:$KOKORO_PORT/health" > /dev/null; then
-            curl -s -X POST "http://127.0.0.1:$KOKORO_PORT/speak" \
-                -H "Content-Type: application/json" \
-                -d "{\"text\": \"$(echo "$line" | sed 's/"/\\"/g')\", \"voice\": \"$voice\", \"speed\": $TTS_SPEED}" \
-                --output "$temp_wav"
-        else
-            # Fallback to cold CLI
-            kokoro-tts --text "$line" --voice "$voice" --speed "$TTS_SPEED" --output "$temp_wav" >/dev/null 2>&1
-        fi
-        
-        # Play
+
+        curl -s -X POST "http://127.0.0.1:$KOKORO_PORT/speak" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\": \"$(echo "$line" | sed 's/"/\\"/g')\", \"voice\": \"$voice\", \"speed\": $TTS_SPEED}" \
+            --output "$temp_wav"
+
+        # Play (|| true so a SIGTERM from mute/dictate doesn't trip set -e)
         if [ -f "$temp_wav" ]; then
             if ! is_muted && ! is_recording; then
-                afplay "$temp_wav"
+                afplay "$temp_wav" || true
             fi
             rm "$temp_wav"
         fi
-        
+
     done <<< "$sentences"
 }
 
@@ -499,6 +516,13 @@ cmd_doctor() {
         ok "OpenCode config references SpeakEasy plugin"
     else
         warn "OpenCode config missing SpeakEasy plugin reference"
+    fi
+
+    local macos_service="$HOME/Library/Services/Speak with SpeakEasy.workflow"
+    if [ -d "$macos_service" ]; then
+        ok "macOS right-click service installed"
+    else
+        warn "macOS right-click service not installed (run: speakeasy hook-install macos-service)"
     fi
     echo
 
@@ -693,8 +717,198 @@ EOF
             log "OpenCode config updated: $opencode_config_file"
             log "Launch OpenCode normally: opencode"
             ;;
+        macos-service)
+            local service_name="Speak with SpeakEasy"
+            local services_dir="$HOME/Library/Services"
+            local workflow_dir="$services_dir/$service_name.workflow/Contents"
+            local wflow_file="$workflow_dir/document.wflow"
+            local uuid1 uuid2 uuid3
+            uuid1=$(uuidgen)
+            uuid2=$(uuidgen)
+            uuid3=$(uuidgen)
+            mkdir -p "$workflow_dir"
+            cat > "$wflow_file" <<'WFLOW'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AMApplicationBuild</key>
+	<string>521</string>
+	<key>AMApplicationVersion</key>
+	<string>2.10</string>
+	<key>AMDocumentVersion</key>
+	<string>2</string>
+	<key>actions</key>
+	<array>
+		<dict>
+			<key>action</key>
+			<dict>
+				<key>AMAccepts</key>
+				<dict>
+					<key>Container</key>
+					<string>List</string>
+					<key>Optional</key>
+					<true/>
+					<key>Types</key>
+					<array>
+						<string>com.apple.cocoa.string</string>
+					</array>
+				</dict>
+				<key>AMActionVersion</key>
+				<string>2.0.3</string>
+				<key>AMApplication</key>
+				<array>
+					<string>Automator</string>
+				</array>
+				<key>AMParameterProperties</key>
+				<dict>
+					<key>COMMAND_STRING</key>
+					<dict/>
+					<key>CheckedForUserDefaultShell</key>
+					<dict/>
+					<key>inputMethod</key>
+					<dict/>
+					<key>shell</key>
+					<dict/>
+					<key>source</key>
+					<dict/>
+				</dict>
+				<key>AMProvides</key>
+				<dict>
+					<key>Container</key>
+					<string>List</string>
+					<key>Types</key>
+					<array>
+						<string>com.apple.cocoa.string</string>
+					</array>
+				</dict>
+				<key>ActionBundlePath</key>
+				<string>/System/Library/Automator/Run Shell Script.action</string>
+				<key>ActionName</key>
+				<string>Run Shell Script</string>
+				<key>ActionParameters</key>
+				<dict>
+					<key>COMMAND_STRING</key>
+					<string>__SPEAKEASY_BIN__ speak</string>
+					<key>CheckedForUserDefaultShell</key>
+					<true/>
+					<key>inputMethod</key>
+					<integer>0</integer>
+					<key>shell</key>
+					<string>/bin/bash</string>
+					<key>source</key>
+					<string></string>
+				</dict>
+				<key>BundleIdentifier</key>
+				<string>com.apple.RunShellScript</string>
+				<key>CFBundleVersion</key>
+				<string>2.0.3</string>
+				<key>CanShowSelectedItemsWhenRun</key>
+				<false/>
+				<key>CanShowWhenRun</key>
+				<true/>
+				<key>Category</key>
+				<array>
+					<string>AMCategoryUtilities</string>
+				</array>
+				<key>Class Name</key>
+				<string>RunShellScriptAction</string>
+				<key>InputUUID</key>
+				<string>__UUID1__</string>
+				<key>Keywords</key>
+				<array>
+					<string>Shell</string>
+					<string>Script</string>
+					<string>Command</string>
+					<string>Run</string>
+					<string>Unix</string>
+				</array>
+				<key>OutputUUID</key>
+				<string>__UUID2__</string>
+				<key>UUID</key>
+				<string>__UUID3__</string>
+				<key>UnlockPassword</key>
+				<string></string>
+				<key>UserDefinedFields</key>
+				<dict/>
+				<key>isViewVisible</key>
+				<true/>
+			</dict>
+		</dict>
+	</array>
+	<key>connectors</key>
+	<dict/>
+	<key>workflowMetaData</key>
+	<dict>
+		<key>inputTypeIdentifier</key>
+		<string>com.apple.Automator.text</string>
+		<key>outputTypeIdentifier</key>
+		<string>com.apple.Automator.nothing</string>
+		<key>presentationMode</key>
+		<integer>11</integer>
+		<key>processesInput</key>
+		<integer>0</integer>
+		<key>serviceInputTypeIdentifier</key>
+		<string>com.apple.Automator.text</string>
+		<key>serviceOutputTypeIdentifier</key>
+		<string>com.apple.Automator.nothing</string>
+		<key>serviceProcessesInput</key>
+		<integer>0</integer>
+		<key>workflowTypeIdentifier</key>
+		<string>com.apple.Automator.servicesMenu</string>
+	</dict>
+</dict>
+</plist>
+WFLOW
+            sed -i '' \
+                -e "s|__SPEAKEASY_BIN__|$speakeasy_bin|g" \
+                -e "s|__UUID1__|$uuid1|g" \
+                -e "s|__UUID2__|$uuid2|g" \
+                -e "s|__UUID3__|$uuid3|g" \
+                "$wflow_file"
+
+            # Info.plist is required for macOS to register the service in the Services menu
+            cat > "$workflow_dir/Info.plist" <<'INFOPLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.apple.automator.Speak-with-SpeakEasy</string>
+	<key>CFBundleName</key>
+	<string>Speak with SpeakEasy</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>Speak with SpeakEasy</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>doService</string>
+			<key>NSPortName</key>
+			<string>Speak with SpeakEasy</string>
+			<key>NSSendTypes</key>
+			<array>
+				<string>NSStringPboardType</string>
+			</array>
+			<key>NSReturnTypes</key>
+			<array/>
+		</dict>
+	</array>
+</dict>
+</plist>
+INFOPLIST
+            /System/Library/CoreServices/pbs -flush 2>/dev/null || true
+            log "macOS service installed: '$service_name'"
+            log "Select text → right-click → Services → '$service_name'"
+            log "If not visible: System Settings → Keyboard → Shortcuts → Services → enable it"
+            ;;
         *)
-            error "Unknown target: $target. Supported: claude, opencode"
+            error "Unknown target: $target. Supported: claude, opencode, macos-service"
             ;;
     esac
 }
@@ -723,6 +937,6 @@ case "$1" in
         echo "Usage: speakeasy {setup|server|dictate|speak|mute|unmute|status|logs|doctor|hook-install|help}"
         echo "Example logs: speakeasy logs all -n 120"
         echo "Example doctor: speakeasy doctor"
-        echo "Example hook-install: speakeasy hook-install {claude|opencode}"
+        echo "Example hook-install: speakeasy hook-install {claude|opencode|macos-service}"
         ;;
 esac
