@@ -1113,7 +1113,13 @@ case "$1" in
     dictate) cmd_dictate ;;
     speak) shift; cmd_speak "$@" ;;
     stop) cmd_stop ;;
-    mute) rm -f "$MUTE_FILE"; pkill -x afplay || true; log "Muted." ;;
+    mute)
+        if [ -d /tmp/speakeasy-speech.lock ]; then
+            cmd_stop; log "Stopped."
+        else
+            rm -f "$MUTE_FILE"; log "Muted."
+        fi
+        ;;
     unmute) touch "$MUTE_FILE"; log "Unmuted." ;;
     status) cmd_status ;;
     logs) shift; cmd_logs "$@" ;;
