@@ -805,7 +805,7 @@ EOF
 					<key>COMMAND_STRING</key>
 					<string>TEXT=$(cat)
 __SPEAKEASY_BIN__ stop
-printf '%s' "$TEXT" | __SPEAKEASY_BIN__ speak</string>
+printf '%s' "$TEXT" | __SPEAKEASY_BIN__ speak || true</string>
 					<key>CheckedForUserDefaultShell</key>
 					<true/>
 					<key>inputMethod</key>
