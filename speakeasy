@@ -276,6 +276,11 @@ cmd_dictate() {
     fi
 }
 
+cmd_stop() {
+    pkill -x afplay || true
+    rm -rf /tmp/speakeasy-speech.lock
+}
+
 cmd_speak() {
     local text=""
     local project=""
@@ -790,7 +795,11 @@ EOF
 				<key>ActionParameters</key>
 				<dict>
 					<key>COMMAND_STRING</key>
-					<string>__SPEAKEASY_BIN__ speak</string>
+					<string>if [ -d /tmp/speakeasy-speech.lock ]; then
+	__SPEAKEASY_BIN__ stop
+else
+	__SPEAKEASY_BIN__ speak
+fi</string>
 					<key>CheckedForUserDefaultShell</key>
 					<true/>
 					<key>inputMethod</key>
@@ -928,6 +937,7 @@ case "$1" in
         ;;
     dictate) cmd_dictate ;;
     speak) shift; cmd_speak "$@" ;;
+    stop) cmd_stop ;;
     mute) rm -f "$MUTE_FILE"; pkill -x afplay || true; log "Muted." ;;
     unmute) touch "$MUTE_FILE"; log "Unmuted." ;;
     status) cmd_status ;;
@@ -935,7 +945,7 @@ case "$1" in
     doctor) cmd_doctor ;;
     hook-install) shift; cmd_hook_install "$@" ;;
     help|*)
-        echo "Usage: speakeasy {setup|server|dictate|speak|mute|unmute|status|logs|doctor|hook-install|help}"
+        echo "Usage: speakeasy {setup|server|dictate|speak|stop|mute|unmute|status|logs|doctor|hook-install|help}"
         echo "Example logs: speakeasy logs all -n 120"
         echo "Example doctor: speakeasy doctor"
         echo "Example hook-install: speakeasy hook-install {claude|opencode|macos-service}"
